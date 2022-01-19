@@ -9,7 +9,15 @@ And modify by [`rinetd`](https://github.com/fooofei/rinetd).
 ```shell
 go build -v
 ```
+or use `gox` to build
+```shell script
+go get github.com/mitchellh/gox
+gox -osarch="linux/amd64"
+gox -os="linux"
+```
 will generate `zredirector` executable file.
+
+
 
 ## Use
 

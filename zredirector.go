@@ -222,10 +222,12 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err er
 	}
 	for {
 		nr, er := src.Read(buf)
-		fmt.Println(nr,string(buf[0:nr]),err)
+		tStr := string(buf[0:nr])
+		fmt.Println(nr,tStr,err,"receive")
 		var eLast string = ""
-		if strings.HasPrefix(string(buf[0:nr]), "e_") {
-			origin, err := AesDecrypt(buf[2:nr],AesKey)
+		if strings.Index(tStr,"e__") >= 0 {
+			encrypted, _ := base64.StdEncoding.DecodeString(tStr[3:])
+			origin, err := AesDecrypt([]byte(encrypted),AesKey)
 			if err != nil {
 				println(err, "error AesDecrypt")
 			}
@@ -235,9 +237,9 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err er
 			if err != nil {
 				println(err, "error AesEncrypt")
 			}
-			eLast = "e_" + base64.StdEncoding.EncodeToString(encrypted)
+			eLast = "e__" + base64.StdEncoding.EncodeToString(encrypted)
 		}
-		println(eLast)
+		fmt.Println(eLast,"send")
 		if nr > 0 {
 			//nw, ew := dst.Write(buf[0:nr])
 			nw, ew := dst.Write([]byte(eLast))
@@ -246,10 +248,6 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err er
 			}
 			if ew != nil {
 				err = ew
-				break
-			}
-			if nr != nw {
-				err = io.ErrShortWrite
 				break
 			}
 		}
@@ -581,7 +579,6 @@ func doWork() {
 
 	fullPath, _ := os.Executable()
 	cur := filepath.Dir(fullPath)
-	//cur := "/Users/xiangxuxu/workspaces_golang/zredirector/"
 	confPath := filepath.Join(cur, "zredirector.conf")
 	_, err = os.Stat(confPath)
 	if err != nil {

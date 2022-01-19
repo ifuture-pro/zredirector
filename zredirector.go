@@ -165,7 +165,7 @@ func forwardTCPCoin(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadW
 	wg.Add(1)
 	go func() {
 		b := make([]byte, 1024*1024)
-		_, _ = copyBuffer(left, right, b)
+		_, _ = copyBuffer(left, right, b,"r-l")
 		wg.Done()
 		mgt0.Wg.Done()
 	}()
@@ -175,7 +175,7 @@ func forwardTCPCoin(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadW
 	wg.Add(1)
 	go func() {
 		b := make([]byte, 1024*1024)
-		_, _ = copyBuffer(right, left, b)
+		_, _ = copyBuffer(right, left, b,"l-r")
 		wg.Done()
 		mgt0.Wg.Done()
 	}()
@@ -196,7 +196,7 @@ func forwardTCPCoin(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadW
 	_ = right.Close()
 }
 
-func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err error) {
+func copyBuffer(dst io.Writer, src io.Reader, buf []byte, mark string) (written int64, err error) {
 	if buf != nil && len(buf) == 0 {
 		panic("empty buffer in copyBuffer")
 	}
@@ -223,7 +223,7 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err er
 	for {
 		nr, er := src.Read(buf)
 		tStr := string(buf[0:nr])
-		fmt.Println(nr,tStr,err,"receive")
+		fmt.Println(nr,tStr,err,"receive",mark)
 		var eLast string = ""
 		if strings.Index(tStr,"e__") >= 0 {
 			encrypted, _ := base64.StdEncoding.DecodeString(tStr[3:])
@@ -239,7 +239,7 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err er
 			}
 			eLast = "e__" + base64.StdEncoding.EncodeToString(encrypted)
 		}
-		fmt.Println(eLast,"send")
+		fmt.Println(eLast,"send",mark)
 		if nr > 0 {
 			//nw, ew := dst.Write(buf[0:nr])
 			nw, ew := dst.Write([]byte(eLast))

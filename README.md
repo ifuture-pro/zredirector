@@ -1,6 +1,9 @@
 # zredirector
 
-This is a golang version port of linux tool [`rinetd`](https://github.com/samhocevar/rinetd).
+This program is used to efficiently redirect connections from one IP address/port combination to another.   
+It is useful when operating virtual servers, firewalls and the like.
+
+> This is a golang version port of linux tool [`rinetd`](https://github.com/samhocevar/rinetd).
 And modify by [`rinetd`](https://github.com/fooofei/rinetd).
 
 

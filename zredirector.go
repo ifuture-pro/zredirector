@@ -36,6 +36,12 @@ type chain struct {
 	ToAddr     string
 }
 
+type encrypt struct {
+	PriKey	string
+	PubKey  string
+	Proto   string
+}
+
 func (c *chain) String() string {
 	return fmt.Sprintf("%v->%v/%v", c.ListenAddr, c.ToAddr, c.Proto)
 }
@@ -55,6 +61,7 @@ func (u *udpSession) Close() error {
 
 type mgt struct {
 	// 业务集合
+	Encrypts     sync.Map
 	Chains       []*chain
 	UdpSsns      sync.Map // hash udpSession
 	TcpCnnCnt    int64
@@ -156,16 +163,17 @@ func forwardTCP(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWrite
 	_ = right.Close()
 }
 
-func forwardTCPCoin(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWriteCloser) {
+func forwardTCPAES(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWriteCloser) {
 	_ = c
 	wg := new(sync.WaitGroup)
 	bothClose := make(chan bool, 1)
 	// right -> left
 	mgt0.Wg.Add(1)
 	wg.Add(1)
+	en,_ := mgt0.Encrypts.Load("aes")
 	go func() {
 		b := make([]byte, 1024*1024)
-		_, _ = copyBuffer(left, right, b,"r-l")
+		_, _ = copyBuffer(left, right, b,[]byte(en.(*encrypt).PriKey),"r-l")
 		wg.Done()
 		mgt0.Wg.Done()
 	}()
@@ -175,7 +183,7 @@ func forwardTCPCoin(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadW
 	wg.Add(1)
 	go func() {
 		b := make([]byte, 1024*1024)
-		_, _ = copyBuffer(right, left, b,"l-r")
+		_, _ = copyBuffer(right, left, b,[]byte(en.(*encrypt).PriKey),"l-r")
 		wg.Done()
 		mgt0.Wg.Done()
 	}()
@@ -196,7 +204,7 @@ func forwardTCPCoin(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadW
 	_ = right.Close()
 }
 
-func copyBuffer(dst io.Writer, src io.Reader, buf []byte, mark string) (written int64, err error) {
+func copyBuffer(dst io.Writer, src io.Reader, buf []byte, aesKey []byte ,mark string) (written int64, err error) {
 	if buf != nil && len(buf) == 0 {
 		panic("empty buffer in copyBuffer")
 	}
@@ -227,13 +235,13 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte, mark string) (written 
 		var eLast string = ""
 		if strings.Index(tStr,"e__") >= 0 {
 			encrypted, _ := base64.StdEncoding.DecodeString(tStr[3:])
-			origin, err := AesDecrypt([]byte(encrypted),AesKey)
+			origin, err := AesDecrypt([]byte(encrypted),aesKey)
 			if err != nil {
 				println(err, "error AesDecrypt")
 			}
 			eLast = string(origin)
 		}else {
-			encrypted, err := AesEncrypt(buf[0:nr], AesKey)
+			encrypted, err := AesEncrypt(buf[0:nr],aesKey)
 			if err != nil {
 				println(err, "error AesEncrypt")
 			}
@@ -357,9 +365,9 @@ func setupTCPChain(mgt0 *mgt, c *chain) {
 	close(closeChan)
 }
 
-func setupCoinChain(mgt0 *mgt, c *chain) {
+func setupAESChain(mgt0 *mgt, c *chain) {
 	var err error
-	logger := Logger.WithName("setupCoinChain")
+	logger := Logger.WithName("setupAESChain")
 	logger = logger.WithValues("chain", c.String())
 	logger.Info("enter")
 	defer logger.Info("leave")
@@ -393,7 +401,7 @@ func setupCoinChain(mgt0 *mgt, c *chain) {
 		mgt0.Wg.Add(1)
 		go func(arg0 *mgt, arg1 *chain, arg2 io.ReadWriteCloser, arg3 io.ReadWriteCloser) {
 			atomic.AddInt64(&mgt0.TcpCnnCnt, 1)
-			forwardTCPCoin(arg0, arg1, arg2, arg3)
+			forwardTCPAES(arg0, arg1, arg2, arg3)
 			atomic.AddInt64(&mgt0.TcpCnnCnt, -1)
 			arg0.Wg.Done()
 		}(mgt0, c, cnn, toCnn)
@@ -508,8 +516,8 @@ func setupChains(mgt0 *mgt, cancel context.CancelFunc) {
 				setupTCPChain(arg0, arg1)
 			} else if arg1.Proto == "udp" {
 				setupUDPChain(arg0, arg1)
-			} else if arg1.Proto == "coin_encrypt" {
-				setupCoinChain(arg0, arg1)
+			} else if arg1.Proto == "tcp_encrypt_aes" {
+				setupAESChain(arg0, arg1)
 			}
 			arg0.Wg.Done()
 		}(mgt0, c)
@@ -539,17 +547,26 @@ func listChainsFromConf(filename string, mgt0 *mgt) {
 		for _, e := range ar {
 			e = strings.TrimSpace(e)
 			if len(e) > 0 {
-				arValid = append(arValid, e)
+				arValid = append(arValid, strings.ToLower(e))
 			}
 		}
-		if len(arValid) > 2 {
-			v := &chain{}
-			v.ListenAddr = arValid[0]
-			v.ToAddr = arValid[1]
-			v.Proto = strings.ToLower(arValid[2])
-			mgt0.Chains = append(mgt0.Chains, v)
+		if len(arValid) == 3 {
+			if arValid[0] == "aes" {
+				e := &encrypt{}
+				e.Proto = arValid[0]
+				e.PriKey = arValid[1]
+				e.PubKey = arValid[2]
+				mgt0.Encrypts.Store(e.Proto,e)
+			}else {
+				v := &chain{}
+				v.ListenAddr = arValid[0]
+				v.ToAddr = arValid[1]
+				v.Proto = arValid[2]
+				mgt0.Chains = append(mgt0.Chains, v)
+			}
 		}
 	}
+	mgt0.Encrypts.LoadOrStore("aes",&encrypt{Proto: "aes",PriKey: "zHvL%$o0oNbxXZnk#o2qbqCeQB1iXeIR"})
 	_ = fr.Close()
 }
 
@@ -594,9 +611,7 @@ func doWork() {
 }
 
 
-// ######encrypt toolkit##########
-
-var AesKey = []byte("zHvL%$o0oNNoOZnk#o2qbqCeQB1iXeIR")
+// ######encrypt toolkit###AES#######
 
 func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
 	padding := blockSize - len(ciphertext)%blockSize

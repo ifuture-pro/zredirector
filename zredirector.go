@@ -171,7 +171,7 @@ func forwardTCPAES(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWr
 	wg.Add(1)
 	en,_ := mgt0.Encrypts.Load("aes")
 	go func() {
-		b := make([]byte, 1024*1024)
+		b := make([]byte, 1024*1024*512)
 		_, _ = copyBuffer(left, right, b,[]byte(en.(*encrypt).PriKey),"r-l")
 		wg.Done()
 		mgt0.Wg.Done()
@@ -181,7 +181,7 @@ func forwardTCPAES(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWr
 	mgt0.Wg.Add(1)
 	wg.Add(1)
 	go func() {
-		b := make([]byte, 1024*1024)
+		b := make([]byte, 1024*1024*512)
 		_, _ = copyBuffer(right, left, b,[]byte(en.(*encrypt).PriKey),"l-r")
 		wg.Done()
 		mgt0.Wg.Done()
@@ -238,12 +238,14 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte, aesKey []byte ,mark st
 			origin, err := AesDecrypt([]byte(encrypted),aesKey)
 			if err != nil {
 				logger.Error(err, "error AesDecrypt")
+				continue
 			}
 			eLast = string(origin)
 		}else {
 			encrypted, err := AesEncrypt(buf[0:nr],aesKey)
 			if err != nil {
 				logger.Error(err, "error AesEncrypt")
+				continue
 			}
 			eLast = "e__" + base64.StdEncoding.EncodeToString(encrypted)
 		}
@@ -395,7 +397,7 @@ func setupAESChain(mgt0 *mgt, c *chain) {
 			logger.Error(err, "error dial ToAddr")
 			continue
 		}
-		logger.Info("new coin connection pair",
+		logger.Info("new crypto connection pair",
 			"1From", cnn.RemoteAddr().String(), "1To", cnn.LocalAddr().String(),
 			"2From", toCnn.LocalAddr().String(), "2To", toCnn.RemoteAddr().String())
 		mgt0.Wg.Add(1)
@@ -626,7 +628,13 @@ func PKCS7UnPadding(origData []byte) []byte {
 }
 
 //AES加密,CBC
-func AesEncrypt(origData, key []byte) ([]byte, error) {
+func AesEncrypt(origData, key []byte) (cryp []byte, err1 error) {
+	defer func() {
+		if r := recover(); r != nil {
+			Logger.Info("捕获到的错误", r)
+			err1 = errors.New("AesEncrypt Error")
+		}
+	}()
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -640,7 +648,13 @@ func AesEncrypt(origData, key []byte) ([]byte, error) {
 }
 
 //AES解密
-func AesDecrypt(crypted, key []byte) ([]byte, error) {
+func AesDecrypt(crypted, key []byte) (cryp []byte, err1 error) {
+	defer func() {
+		if r := recover(); r != nil {
+			Logger.Info("捕获到的错误", r)
+			err1 = errors.New("AesDecrypt Error")
+		}
+	}()
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err

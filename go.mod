@@ -1,9 +1,5 @@
 module github.com/ifuture-pro/zredirector
 
-go 1.14
+go 1.17
 
-require (
-	github.com/fooofei/stdr v0.2.0
-	github.com/go-logr/logr v0.4.0
-	github.com/mitchellh/gox v1.0.1 // indirect
-)
+require github.com/go-logr/logr v1.2.2

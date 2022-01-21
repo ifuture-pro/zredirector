@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	stdlog "log"
 	"net"
 	"os"
 	"os/signal"
@@ -21,8 +20,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fooofei/stdr"
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 )
 
 // worked like `rinetd`.
@@ -205,6 +204,7 @@ func forwardTCPAES(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWr
 }
 
 func copyBuffer(dst io.Writer, src io.Reader, buf []byte, aesKey []byte ,mark string) (written int64, err error) {
+	logger := Logger.WithValues("algorithm","AES")
 	if buf != nil && len(buf) == 0 {
 		panic("empty buffer in copyBuffer")
 	}
@@ -231,23 +231,23 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte, aesKey []byte ,mark st
 	for {
 		nr, er := src.Read(buf)
 		tStr := string(buf[0:nr])
-		fmt.Println(nr,tStr,err,"receive",mark)
+		logger.Info("receive","message",tStr,"error",err,"mark",mark)
 		var eLast string = ""
 		if strings.Index(tStr,"e__") >= 0 {
 			encrypted, _ := base64.StdEncoding.DecodeString(tStr[3:])
 			origin, err := AesDecrypt([]byte(encrypted),aesKey)
 			if err != nil {
-				println(err, "error AesDecrypt")
+				logger.Error(err, "error AesDecrypt")
 			}
 			eLast = string(origin)
 		}else {
 			encrypted, err := AesEncrypt(buf[0:nr],aesKey)
 			if err != nil {
-				println(err, "error AesEncrypt")
+				logger.Error(err, "error AesEncrypt")
 			}
 			eLast = "e__" + base64.StdEncoding.EncodeToString(encrypted)
 		}
-		fmt.Println(eLast,"send",mark)
+		logger.Info("send","message",eLast,"mark",mark)
 		if nr > 0 {
 			//nw, ew := dst.Write(buf[0:nr])
 			nw, ew := dst.Write([]byte(eLast))
@@ -282,7 +282,7 @@ func udpSsnCanAge(us *udpSession, ttl time.Duration) bool {
 // 只转发 right -> left 方向的 UDP 报文
 // SetReadDeadline 协助完成老化功能
 func forwardUDP(mgt0 *mgt, us *udpSession) {
-	logger := Logger.WithName("forwardUDP")
+	logger := Logger.WithValues("method","forwardUDP")
 	logger = logger.WithValues("chain", us.OwnerChain.String())
 	logger = logger.WithValues("fromAddr", us.FromAddr.String())
 	logger.Info("enter")
@@ -324,7 +324,7 @@ func forwardUDP(mgt0 *mgt, us *udpSession) {
 
 func setupTCPChain(mgt0 *mgt, c *chain) {
 	var err error
-	logger := Logger.WithName("setupTCPChain")
+	logger := Logger.WithValues("method","setupTCPChain")
 	logger = logger.WithValues("chain", c.String())
 	logger.Info("enter")
 	defer logger.Info("leave")
@@ -367,7 +367,7 @@ func setupTCPChain(mgt0 *mgt, c *chain) {
 
 func setupAESChain(mgt0 *mgt, c *chain) {
 	var err error
-	logger := Logger.WithName("setupAESChain")
+	logger := Logger.WithValues("method","setupAESChain")
 	logger = logger.WithValues("chain", c.String())
 	logger.Info("enter")
 	defer logger.Info("leave")
@@ -429,7 +429,7 @@ func newUdpSsn(mgt0 *mgt, c *chain, fromAddr net.Addr,
 
 func setupUDPChain(mgt0 *mgt, c *chain) {
 	var err error
-	logger := Logger.WithName("setupUDPChain")
+	logger := Logger.WithValues("method","setupUDPChain")
 	logger = logger.WithValues("chain", c.String())
 	logger.Info("enter")
 	defer logger.Info("leave")
@@ -572,7 +572,7 @@ func listChainsFromConf(filename string, mgt0 *mgt) {
 
 func stat(mgt0 *mgt) {
 	tc := time.Tick(mgt0.StatInterval)
-	logger := Logger.WithName("stat")
+	logger := Logger.WithValues("method","stat")
 loop:
 	for {
 		select {
@@ -653,11 +653,19 @@ func AesDecrypt(crypted, key []byte) ([]byte, error) {
 	return origData, nil
 }
 
+func NewStdoutLogger() logr.Logger {
+	return funcr.New(func(prefix, args string) {
+		if prefix != "" {
+			_ = fmt.Sprintf("%s: %s\n", prefix, args)
+		} else {
+			fmt.Println(args)
+		}
+	}, funcr.Options{})
+}
+
 func main() {
-	// setup logger in main routine
-	Logger = stdr.New(stdlog.New(os.Stderr, "", stdlog.Lshortfile|stdlog.LstdFlags))
+	Logger = NewStdoutLogger()
 	Logger = Logger.WithValues("pid", os.Getpid())
-	//
 	doWork()
 	Logger.Info("main exit")
 }

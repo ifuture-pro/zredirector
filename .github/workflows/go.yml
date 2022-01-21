@@ -22,12 +22,9 @@ jobs:
 
     - name: Build
       run: |
-        go build -v ./...
+        go build -v 
         gox -osarch="linux/amd64"
         gox -os="linux"
-
-    - name: Test
-      run: go test -v ./..
     
     - name: releases
       uses: "marvinpinto/action-automatic-releases@latest"

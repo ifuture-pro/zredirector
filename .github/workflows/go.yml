@@ -22,6 +22,7 @@ jobs:
 
     - name: Build
       run: |
+        go get -v -t
         go build -v 
         gox -osarch="linux/amd64"
         gox -os="linux"

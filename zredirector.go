@@ -631,8 +631,15 @@ func PKCS7UnPadding(origData []byte) []byte {
 func AesEncrypt(origData, key []byte) (cryp []byte, err1 error) {
 	defer func() {
 		if r := recover(); r != nil {
-			Logger.Info("捕获到的错误", r)
-			err1 = errors.New("AesEncrypt Error")
+			Logger.Info("caught error", r)
+			switch x := r.(type) {
+			case string:
+				err1 = errors.New(x)
+			case error:
+				err1 = x
+			default:
+				err1 = errors.New("caught AesDecrypt Error")
+			}
 		}
 	}()
 	block, err := aes.NewCipher(key)
@@ -651,8 +658,15 @@ func AesEncrypt(origData, key []byte) (cryp []byte, err1 error) {
 func AesDecrypt(crypted, key []byte) (cryp []byte, err1 error) {
 	defer func() {
 		if r := recover(); r != nil {
-			Logger.Info("捕获到的错误", r)
-			err1 = errors.New("AesDecrypt Error")
+			Logger.Info("caught error", r)
+			switch x := r.(type) {
+			case string:
+				err1 = errors.New(x)
+			case error:
+				err1 = x
+			default:
+				err1 = errors.New("caught AesDecrypt Error")
+			}
 		}
 	}()
 	block, err := aes.NewCipher(key)

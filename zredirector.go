@@ -627,7 +627,6 @@ func doWork() {
 
 	fullPath, _ := os.Executable()
 	cur := filepath.Dir(fullPath)
-	cur = "/Users/xiangxuxu/workspaces_golang/zredirector"
 	confPath := filepath.Join(cur, "zredirector.conf")
 	_, err = os.Stat(confPath)
 	if err != nil {
@@ -711,7 +710,15 @@ func AesDecrypt(crypted, key []byte) (cryp []byte, err1 error) {
 }
 
 func main() {
-	Logger.Out = os.Stdout
+	fullPath, _ := os.Executable()
+	cur := filepath.Dir(fullPath)
+	logPath := filepath.Join(cur, "z.log")
+	src, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	if err != nil {
+		fmt.Println("err", err)
+	}
+
+	Logger.Out = src
 	Logger.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
@@ -719,6 +726,7 @@ func main() {
 		"pid": os.Getpid(),
 	})
 	Logger.SetLevel(logrus.DebugLevel)
+
 	//Logger.SetReportCaller(true)
 	doWork()
 	Logger.Info("main exit")

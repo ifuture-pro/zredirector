@@ -24,8 +24,7 @@ jobs:
       run: |
         go get -v -t
         go build -v 
-        gox -osarch="linux/amd64"
-        gox -os="linux"
+        gox
     - name: releases
       uses: "marvinpinto/action-automatic-releases@latest"
       with:

@@ -20,13 +20,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
+	"github.com/sirupsen/logrus"
 )
 
 // worked like `rinetd`.
 
-var Logger logr.Logger
+var Logger = logrus.New()
 
 // forward TCP/UDP from ListenAddr to ToAddr
 type chain struct {
@@ -36,9 +35,9 @@ type chain struct {
 }
 
 type encrypt struct {
-	PriKey	string
-	PubKey  string
-	Proto   string
+	PriKey string
+	PubKey string
+	Proto  string
 }
 
 func (c *chain) String() string {
@@ -169,10 +168,10 @@ func forwardTCPAES(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWr
 	// right -> left
 	mgt0.Wg.Add(1)
 	wg.Add(1)
-	en,_ := mgt0.Encrypts.Load("aes")
+	en, _ := mgt0.Encrypts.Load("aes")
 	go func() {
 		b := make([]byte, 1024*1024*512)
-		_, _ = copyBuffer(left, right, b,[]byte(en.(*encrypt).PriKey),"r-l")
+		_, _ = copyBuffer(left, right, b, []byte(en.(*encrypt).PriKey), "r-l")
 		wg.Done()
 		mgt0.Wg.Done()
 	}()
@@ -182,7 +181,7 @@ func forwardTCPAES(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWr
 	wg.Add(1)
 	go func() {
 		b := make([]byte, 1024*1024*512)
-		_, _ = copyBuffer(right, left, b,[]byte(en.(*encrypt).PriKey),"l-r")
+		_, _ = copyBuffer(right, left, b, []byte(en.(*encrypt).PriKey), "l-r")
 		wg.Done()
 		mgt0.Wg.Done()
 	}()
@@ -203,8 +202,10 @@ func forwardTCPAES(mgt0 *mgt, c *chain, left io.ReadWriteCloser, right io.ReadWr
 	_ = right.Close()
 }
 
-func copyBuffer(dst io.Writer, src io.Reader, buf []byte, aesKey []byte ,mark string) (written int64, err error) {
-	logger := Logger.WithValues("algorithm","AES")
+func copyBuffer(dst io.Writer, src io.Reader, buf []byte, aesKey []byte, mark string) (written int64, err error) {
+	logger := Logger.WithFields(logrus.Fields{
+		"algorithm": "AES",
+	})
 	if buf != nil && len(buf) == 0 {
 		panic("empty buffer in copyBuffer")
 	}
@@ -231,25 +232,32 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte, aesKey []byte ,mark st
 	for {
 		nr, er := src.Read(buf)
 		tStr := string(buf[0:nr])
-		logger.Info("receive","message",tStr,"error",err,"mark",mark)
+		logger.WithFields(logrus.Fields{
+			"message": tStr,
+			"error":   err,
+			"mark":    mark,
+		}).Debug("receive")
 		var eLast string = ""
-		if strings.Index(tStr,"e__") >= 0 {
+		if strings.Index(tStr, "e__") >= 0 {
 			encrypted, _ := base64.StdEncoding.DecodeString(tStr[3:])
-			origin, err := AesDecrypt([]byte(encrypted),aesKey)
+			origin, err := AesDecrypt([]byte(encrypted), aesKey)
 			if err != nil {
 				logger.Error(err, "error AesDecrypt")
 				continue
 			}
 			eLast = string(origin)
-		}else {
-			encrypted, err := AesEncrypt(buf[0:nr],aesKey)
+		} else {
+			encrypted, err := AesEncrypt(buf[0:nr], aesKey)
 			if err != nil {
 				logger.Error(err, "error AesEncrypt")
 				continue
 			}
 			eLast = "e__" + base64.StdEncoding.EncodeToString(encrypted)
 		}
-		logger.Info("send","message",eLast,"mark",mark)
+		logger.WithFields(logrus.Fields{
+			"message": eLast,
+			"mark":    mark,
+		}).Debug("send")
 		if nr > 0 {
 			//nw, ew := dst.Write(buf[0:nr])
 			nw, ew := dst.Write([]byte(eLast))
@@ -284,9 +292,11 @@ func udpSsnCanAge(us *udpSession, ttl time.Duration) bool {
 // 只转发 right -> left 方向的 UDP 报文
 // SetReadDeadline 协助完成老化功能
 func forwardUDP(mgt0 *mgt, us *udpSession) {
-	logger := Logger.WithValues("method","forwardUDP")
-	logger = logger.WithValues("chain", us.OwnerChain.String())
-	logger = logger.WithValues("fromAddr", us.FromAddr.String())
+	logger := Logger.WithFields(logrus.Fields{
+		"method":   "forwardUDP",
+		"chain":    us.OwnerChain.String(),
+		"fromAddr": us.FromAddr.String(),
+	})
 	logger.Info("enter")
 	b := make([]byte, 64*1024)
 	closeChan := registerCloseCnn0(mgt0, us)
@@ -300,7 +310,7 @@ func forwardUDP(mgt0 *mgt, us *udpSession) {
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				if udpSsnCanAge(us, mgt0.UdpSsnTTL) {
-					logger.Info("read timeout and aged")
+					logger.Error("read timeout and aged")
 					break
 				}
 			} else if errors.Is(err, syscall.ECONNREFUSED) {
@@ -326,8 +336,10 @@ func forwardUDP(mgt0 *mgt, us *udpSession) {
 
 func setupTCPChain(mgt0 *mgt, c *chain) {
 	var err error
-	logger := Logger.WithValues("method","setupTCPChain")
-	logger = logger.WithValues("chain", c.String())
+	logger := Logger.WithFields(logrus.Fields{
+		"method": "setupTCPChain",
+		"chain":  c.String(),
+	})
 	logger.Info("enter")
 	defer logger.Info("leave")
 
@@ -352,9 +364,12 @@ func setupTCPChain(mgt0 *mgt, c *chain) {
 			logger.Error(err, "error dial ToAddr")
 			continue
 		}
-		logger.Info("new connection pair",
-			"1From", cnn.RemoteAddr().String(), "1To", cnn.LocalAddr().String(),
-			"2From", toCnn.LocalAddr().String(), "2To", toCnn.RemoteAddr().String())
+		logger.WithFields(logrus.Fields{
+			"1From": cnn.RemoteAddr().String(),
+			"1To":   cnn.LocalAddr().String(),
+			"2From": toCnn.LocalAddr().String(),
+			"2To":   toCnn.RemoteAddr().String(),
+		}).Info("new connection pair")
 		mgt0.Wg.Add(1)
 		go func(arg0 *mgt, arg1 *chain, arg2 io.ReadWriteCloser, arg3 io.ReadWriteCloser) {
 			atomic.AddInt64(&mgt0.TcpCnnCnt, 1)
@@ -369,8 +384,10 @@ func setupTCPChain(mgt0 *mgt, c *chain) {
 
 func setupAESChain(mgt0 *mgt, c *chain) {
 	var err error
-	logger := Logger.WithValues("method","setupAESChain")
-	logger = logger.WithValues("chain", c.String())
+	logger := Logger.WithFields(logrus.Fields{
+		"method": "setupAESChain",
+		"chain":  c.String(),
+	})
 	logger.Info("enter")
 	defer logger.Info("leave")
 
@@ -397,9 +414,12 @@ func setupAESChain(mgt0 *mgt, c *chain) {
 			logger.Error(err, "error dial ToAddr")
 			continue
 		}
-		logger.Info("new crypto connection pair",
-			"1From", cnn.RemoteAddr().String(), "1To", cnn.LocalAddr().String(),
-			"2From", toCnn.LocalAddr().String(), "2To", toCnn.RemoteAddr().String())
+		logger.WithFields(logrus.Fields{
+			"1From": cnn.RemoteAddr().String(),
+			"1To":   cnn.LocalAddr().String(),
+			"2From": toCnn.LocalAddr().String(),
+			"2To":   toCnn.RemoteAddr().String(),
+		}).Info("new crypto connection pair")
 		mgt0.Wg.Add(1)
 		go func(arg0 *mgt, arg1 *chain, arg2 io.ReadWriteCloser, arg3 io.ReadWriteCloser) {
 			atomic.AddInt64(&mgt0.TcpCnnCnt, 1)
@@ -413,7 +433,7 @@ func setupAESChain(mgt0 *mgt, c *chain) {
 }
 
 func newUdpSsn(mgt0 *mgt, c *chain, fromAddr net.Addr,
-	fromCnn net.PacketConn, logger logr.Logger) *udpSession {
+	fromCnn net.PacketConn, logger *logrus.Entry) *udpSession {
 	d := new(net.Dialer)
 	toCnn, err := d.DialContext(mgt0.WaitCtx, c.Proto, c.ToAddr)
 	if err != nil {
@@ -431,8 +451,10 @@ func newUdpSsn(mgt0 *mgt, c *chain, fromAddr net.Addr,
 
 func setupUDPChain(mgt0 *mgt, c *chain) {
 	var err error
-	logger := Logger.WithValues("method","setupUDPChain")
-	logger = logger.WithValues("chain", c.String())
+	logger := Logger.WithFields(logrus.Fields{
+		"method": "setupUDPChain",
+		"chain":  c.String(),
+	})
 	logger.Info("enter")
 	defer logger.Info("leave")
 
@@ -462,9 +484,11 @@ func setupUDPChain(mgt0 *mgt, c *chain) {
 			}
 			mgt0.UdpSsns.Store(ssnKey, newUdpSsn)
 			oldUdpSsn = newUdpSsn
-			logger.Info("new connection pair",
-				"1From", raddr.String(), "1To", pktCnn.LocalAddr().String(),
-				"2From", newUdpSsn.ToCnn.LocalAddr().String(), "2To", newUdpSsn.ToCnn.RemoteAddr().String())
+
+			logger.WithFields(logrus.Fields{
+				"1From": raddr.String(), "1To": pktCnn.LocalAddr().String(),
+				"2From": newUdpSsn.ToCnn.LocalAddr().String(), "2To": newUdpSsn.ToCnn.RemoteAddr().String(),
+			}).Info("new connection pair ")
 			mgt0.Wg.Add(1)
 			go func(arg0 *mgt, arg1 *udpSession) {
 				forwardUDP(arg0, arg1)
@@ -558,8 +582,8 @@ func listChainsFromConf(filename string, mgt0 *mgt) {
 				e.Proto = arValid[0]
 				e.PriKey = arValid[1]
 				e.PubKey = arValid[2]
-				mgt0.Encrypts.Store(e.Proto,e)
-			}else {
+				mgt0.Encrypts.Store(e.Proto, e)
+			} else {
 				v := &chain{}
 				v.ListenAddr = arValid[0]
 				v.ToAddr = arValid[1]
@@ -568,20 +592,25 @@ func listChainsFromConf(filename string, mgt0 *mgt) {
 			}
 		}
 	}
-	mgt0.Encrypts.LoadOrStore("aes",&encrypt{Proto: "aes",PriKey: "zHvL%$o0oNbxXZnk#o2qbqCeQB1iXeIR"})
+	mgt0.Encrypts.LoadOrStore("aes", &encrypt{Proto: "aes", PriKey: "zHvL%$o0oNbxXZnk#o2qbqCeQB1iXeIR"})
 	_ = fr.Close()
 }
 
 func stat(mgt0 *mgt) {
 	tc := time.Tick(mgt0.StatInterval)
-	logger := Logger.WithValues("method","stat")
+	logger := Logger.WithFields(logrus.Fields{
+		"method": "stat",
+	})
 loop:
 	for {
 		select {
 		case <-mgt0.WaitCtx.Done():
 			break loop
 		case <-tc:
-			logger.Info("stat count", "tcp", mgt0.TcpCnnCnt, "udp", mgt0.UdpCnnCnt())
+			logger.WithFields(logrus.Fields{
+				"tcp": mgt0.TcpCnnCnt,
+				"udp": mgt0.UdpCnnCnt(),
+			}).Info("stat count")
 		}
 	}
 }
@@ -598,10 +627,11 @@ func doWork() {
 
 	fullPath, _ := os.Executable()
 	cur := filepath.Dir(fullPath)
+	cur = "/Users/xiangxuxu/workspaces_golang/zredirector"
 	confPath := filepath.Join(cur, "zredirector.conf")
 	_, err = os.Stat(confPath)
 	if err != nil {
-		Logger.Error(err, "error config file, not exists", "filepath", confPath)
+		Logger.Error(err, " error config file, not exists ", "filepath:", confPath)
 		return
 	}
 	listChainsFromConf(confPath, mgt0)
@@ -611,7 +641,6 @@ func doWork() {
 	Logger.Info("all work exit")
 	mgt0.Wg.Wait()
 }
-
 
 // ######encrypt toolkit###AES#######
 
@@ -631,7 +660,7 @@ func PKCS7UnPadding(origData []byte) []byte {
 func AesEncrypt(origData, key []byte) (cryp []byte, err1 error) {
 	defer func() {
 		if r := recover(); r != nil {
-			Logger.Info("caught error", r)
+			Logger.Info("caught error ", r)
 			switch x := r.(type) {
 			case string:
 				err1 = errors.New(x)
@@ -658,7 +687,7 @@ func AesEncrypt(origData, key []byte) (cryp []byte, err1 error) {
 func AesDecrypt(crypted, key []byte) (cryp []byte, err1 error) {
 	defer func() {
 		if r := recover(); r != nil {
-			Logger.Info("caught error", r)
+			Logger.Error("caught error ", r)
 			switch x := r.(type) {
 			case string:
 				err1 = errors.New(x)
@@ -681,19 +710,16 @@ func AesDecrypt(crypted, key []byte) (cryp []byte, err1 error) {
 	return origData, nil
 }
 
-func NewStdoutLogger() logr.Logger {
-	return funcr.New(func(prefix, args string) {
-		if prefix != "" {
-			_ = fmt.Sprintf("%s: %s\n", prefix, args)
-		} else {
-			fmt.Println(args)
-		}
-	}, funcr.Options{})
-}
-
 func main() {
-	Logger = NewStdoutLogger()
-	Logger = Logger.WithValues("pid", os.Getpid())
+	Logger.Out = os.Stdout
+	Logger.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
+	Logger.WithFields(logrus.Fields{
+		"pid": os.Getpid(),
+	})
+	Logger.SetLevel(logrus.DebugLevel)
+	//Logger.SetReportCaller(true)
 	doWork()
 	Logger.Info("main exit")
 }

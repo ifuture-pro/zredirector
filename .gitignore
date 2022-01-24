@@ -1,5 +1,6 @@
 .gitignore
 .idea
+/build
 /.idea
 /zredirector
 /zredirector_linux_amd64

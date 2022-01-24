@@ -710,15 +710,15 @@ func AesDecrypt(crypted, key []byte) (cryp []byte, err1 error) {
 }
 
 func main() {
-	fullPath, _ := os.Executable()
-	cur := filepath.Dir(fullPath)
-	logPath := filepath.Join(cur, "z.log")
-	src, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
-	if err != nil {
-		fmt.Println("err", err)
+	Logger.Out = os.Stdout
+	file, err := os.OpenFile("z.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err == nil {
+		Logger.Out = file
+	} else {
+		Logger.Info("Failed to log to file, using default stderr")
 	}
-
-	Logger.Out = src
+	//mw := io.MultiWriter(os.Stdout, src)
+	//Logger.SetOutput(mw)
 	Logger.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})

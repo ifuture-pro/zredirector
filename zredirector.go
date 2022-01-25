@@ -2,13 +2,11 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"io"
 	"net"
 	"os"
@@ -20,12 +18,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/ifuture-pro/zredirector/config"
+	"github.com/ifuture-pro/zredirector/crypto"
 )
 
 // worked like `rinetd`.
-
-var Logger = logrus.New()
 
 // forward TCP/UDP from ListenAddr to ToAddr
 type chain struct {
@@ -240,14 +237,14 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte, aesKey []byte, mark st
 		var eLast string = ""
 		if strings.Index(tStr, "e__") >= 0 {
 			encrypted, _ := base64.StdEncoding.DecodeString(tStr[3:])
-			origin, err := AesDecrypt([]byte(encrypted), aesKey)
+			origin, err := crypto.AesDecrypt([]byte(encrypted), aesKey)
 			if err != nil {
 				logger.Error(err, "error AesDecrypt")
 				continue
 			}
 			eLast = string(origin)
 		} else {
-			encrypted, err := AesEncrypt(buf[0:nr], aesKey)
+			encrypted, err := crypto.AesEncrypt(buf[0:nr], aesKey)
 			if err != nil {
 				logger.Error(err, "error AesEncrypt")
 				continue
@@ -627,6 +624,7 @@ func doWork() {
 
 	fullPath, _ := os.Executable()
 	cur := filepath.Dir(fullPath)
+	cur = "/Users/xiangxuxu/workspaces_golang/zredirector"
 	confPath := filepath.Join(cur, "zredirector.conf")
 	_, err = os.Stat(confPath)
 	if err != nil {
@@ -641,93 +639,10 @@ func doWork() {
 	mgt0.Wg.Wait()
 }
 
-// ######encrypt toolkit###AES#######
-
-func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
-	padding := blockSize - len(ciphertext)%blockSize
-	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-	return append(ciphertext, padtext...)
-}
-
-func PKCS7UnPadding(origData []byte) []byte {
-	length := len(origData)
-	unpadding := int(origData[length-1])
-	return origData[:(length - unpadding)]
-}
-
-//AES加密,CBC
-func AesEncrypt(origData, key []byte) (cryp []byte, err1 error) {
-	defer func() {
-		if r := recover(); r != nil {
-			Logger.Info("caught error ", r)
-			switch x := r.(type) {
-			case string:
-				err1 = errors.New(x)
-			case error:
-				err1 = x
-			default:
-				err1 = errors.New("caught AesDecrypt Error")
-			}
-		}
-	}()
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	blockSize := block.BlockSize()
-	origData = PKCS7Padding(origData, blockSize)
-	blockMode := cipher.NewCBCEncrypter(block, key[:blockSize])
-	crypted := make([]byte, len(origData))
-	blockMode.CryptBlocks(crypted, origData)
-	return crypted, nil
-}
-
-//AES解密
-func AesDecrypt(crypted, key []byte) (cryp []byte, err1 error) {
-	defer func() {
-		if r := recover(); r != nil {
-			Logger.Error("caught error ", r)
-			switch x := r.(type) {
-			case string:
-				err1 = errors.New(x)
-			case error:
-				err1 = x
-			default:
-				err1 = errors.New("caught AesDecrypt Error")
-			}
-		}
-	}()
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	blockSize := block.BlockSize()
-	blockMode := cipher.NewCBCDecrypter(block, key[:blockSize])
-	origData := make([]byte, len(crypted))
-	blockMode.CryptBlocks(origData, crypted)
-	origData = PKCS7UnPadding(origData)
-	return origData, nil
-}
+var Logger *logrus.Logger
 
 func main() {
-	Logger.Out = os.Stdout
-	file, err := os.OpenFile("z.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err == nil {
-		Logger.Out = file
-	} else {
-		Logger.Info("Failed to log to file, using default stderr")
-	}
-	//mw := io.MultiWriter(os.Stdout, src)
-	//Logger.SetOutput(mw)
-	Logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
-	Logger.WithFields(logrus.Fields{
-		"pid": os.Getpid(),
-	})
-	Logger.SetLevel(logrus.DebugLevel)
-
-	//Logger.SetReportCaller(true)
+	Logger = config.InitLog()
 	doWork()
 	Logger.Info("main exit")
 }

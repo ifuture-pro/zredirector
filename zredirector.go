@@ -624,7 +624,6 @@ func doWork() {
 
 	fullPath, _ := os.Executable()
 	cur := filepath.Dir(fullPath)
-	cur = "/Users/xiangxuxu/workspaces_golang/zredirector"
 	confPath := filepath.Join(cur, "zredirector.conf")
 	_, err = os.Stat(confPath)
 	if err != nil {

@@ -13,15 +13,13 @@ or use `gox` to build
 ```shell script
 go get github.com/mitchellh/gox
 gox -osarch="linux/amd64"
-gox -os="linux"
+gox -os="linux windows"
 ```
 will generate `zredirector` executable file.
 
 
 
 ## Use
-
-Unlike the c version of rinetd, this rinetd use addr pairs writed in `rinetd.conf`.
 
 The addr pairs format in `zredirector.conf` looks like 
 ```
